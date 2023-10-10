@@ -30,7 +30,7 @@ con <- dbConnect(RPostgres::Postgres(), dbname = db, host=host_db, port=db_port,
 
 #-----------------------------------------------------------------Preprocess 
 ParallelLogger::logInfo("Creating Cohorts")
-cohort <- tbl(con, in_schema("results", "cohort" )) %>% rename("person_id" = "subject_id") %>% filter(cohort_definition_id == 2) %>% select("person_id")
+cohort <- tbl(con, in_schema("results", "cohort" )) %>% rename("person_id" = "subject_id") %>% filter(cohort_definition_id == 2) %>% select("person_id", "cohort_start_date")
 condition_era <- tbl(con, in_schema("cmd", "condition_era"))
 death <- tbl(con, in_schema("cmd", "death"))
 observation <- tbl(con, in_schema("cmd", "observation"))
@@ -38,25 +38,27 @@ person <- tbl(con, in_schema("cmd", "person"))
 drug_era <- tbl(con, in_schema("cmd", "drug_era"))
 
 
-tables <- c(condition_occurrence, death, observation, person, drug_exposure)
+tables <- c(condition_era, death, observation, person, drug_exposure)
 features <- c("observation_concept_id", "death_type_concept_id", "person_id", 
               "drug_concept_id") 
 
 ParallelLogger::logInfo("Creating Outcome Cohort")
 final_cohort <- left_join(cohort, death, by='person_id') %>%
-  select("death_type_concept_id", "person_id") %>% collect()
+  select("death_type_concept_id", "person_id", "cohort_start_date") %>% collect()
 
 ParallelLogger::logInfo("-----Creating Features-----")
 ParallelLogger::logInfo("Joining Demographic Data")
 final_cohort <- cohort %>% left_join(person, by='person_id') %>%
+  
   select("gender_concept_id", "person_id") %>% collect() %>% 
   gather(variable, value, -(c(person_id))) %>% 
   mutate(value2 = value)  %>% unite(temp, variable, value2) %>% 
   distinct(.keep_all = TRUE) %>% 
-  spread(temp, value) %>% left_join(final_cohort, by="person_id")
+  spread(temp, value) %>% left_join(final_cohort, by="person_id") 
 
 ParallelLogger::logInfo("Joining Condition Era Data")
 final_cohort <- cohort %>% left_join(condition_era, by='person_id') %>%
+  filter("condition_era_start_date" > "cohort_start_date") %>%
   select("condition_concept_id", "person_id") %>% collect() %>% 
   gather(variable, value, -(c(person_id))) %>% 
   mutate(value2 = value)  %>% unite(temp, variable, value2) %>% 
@@ -65,6 +67,7 @@ final_cohort <- cohort %>% left_join(condition_era, by='person_id') %>%
 
 ParallelLogger::logInfo("Joining Observation Data")
 final_cohort <- cohort %>% left_join(observation, by='person_id') %>% 
+  filter("observation_date" > "cohort_start_date") %>%
   select("observation_concept_id", "person_id") %>% collect() %>% gather(variable, value, -(c(person_id))) %>% 
   mutate(value2 = value)  %>% unite(temp, variable, value2) %>% 
   distinct(.keep_all = TRUE) %>% 
@@ -72,6 +75,7 @@ final_cohort <- cohort %>% left_join(observation, by='person_id') %>%
 
 ParallelLogger::logInfo("Joining Drug Era Data")
 final_cohort <- cohort %>% left_join(drug_era, by='person_id') %>%
+  filter("drug_era_start_date" > "cohort_start_date") %>%
   select("drug_concept_id", "person_id") %>% collect() %>% gather(variable, value, -(c(person_id))) %>% 
   mutate(value2 = value)  %>% unite(temp, variable, value2) %>% 
   distinct(.keep_all = TRUE) %>% 
@@ -330,3 +334,4 @@ autoplot(prediction_lasso, type="roc")
 autoplot(prediction_lasso, type="prc")
 
 prediction_lasso$score(msr("classif.auc"))
+
