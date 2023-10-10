@@ -53,8 +53,8 @@ plpData <- getPlpData(
   restrictPlpDataSettings = restrictPlpDataSettings
 )
 
-savePlpData(plpData, "C:/Users/win10/Documents/ResultsPLP/ischemic_in_af_data")
-plpData <- loadPlpData("C:/Users/win10/Documents/ResultsPLP/ischemic_in_af_data")
+savePlpData(plpData, "C:/Users/class/OneDrive/Dokumente/BenchmarkPLPnMLe3/Results")
+plpData <- loadPlpData("C:/Users/class/OneDrive/Dokumente/BenchmarkPLPnMLe3/Results")
 
 populationSettings <- createStudyPopulationSettings(
   washoutPeriod = 0,
@@ -84,7 +84,7 @@ preprocessSettings<- createPreprocessSettings(
   normalize = T,
   removeRedundancy = T
 )
-setGradient
+
 lrForest <- setRandomForest(ntrees = list(500, 750, 1000, 1250, 1500, 2000), 
                             maxDepth = list(17), minSamplesSplit = list(5), minSamplesLeaf = list(10), 
                             mtries = list("sqrt"), maxSamples = list(NULL), classWeight = list("balanced_subsample"), seed = sample(12345))
