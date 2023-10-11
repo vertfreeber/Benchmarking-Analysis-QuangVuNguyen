@@ -38,10 +38,6 @@ person <- tbl(con, in_schema("cmd", "person"))
 drug_era <- tbl(con, in_schema("cmd", "drug_era"))
 
 
-tables <- c(condition_era, death, observation, person, drug_exposure)
-features <- c("observation_concept_id", "death_type_concept_id", "person_id", 
-              "drug_concept_id") 
-
 ParallelLogger::logInfo("Creating Outcome Cohort")
 final_cohort <- left_join(cohort, death, by='person_id') %>%
   select("death_type_concept_id", "person_id", "cohort_start_date") %>% collect()
@@ -79,7 +75,8 @@ final_cohort <- cohort %>% left_join(drug_era, by='person_id') %>%
   select("drug_concept_id", "person_id") %>% collect() %>% gather(variable, value, -(c(person_id))) %>% 
   mutate(value2 = value)  %>% unite(temp, variable, value2) %>% 
   distinct(.keep_all = TRUE) %>% 
-  spread(temp, value) %>% left_join(final_cohort, by="person_id")
+  spread(temp, value) %>% left_join(final_cohort, by="person_id") %>%
+  head(100)
 
 gc()
 
@@ -126,19 +123,6 @@ fselector = fs("random_search")
 set.seed(7832)
 lgr::get_logger("mlr3")$set_threshold("warn")
 
-po_under = po("classbalancing",
-              id = "undersample", adjust = "major",
-              reference = "major", shuffle = FALSE, ratio = 1 / 6)
-
-gr_smote =
-  po("colapply", id = "int_to_num",
-     applicator = as.numeric, affect_columns = selector_type("integer")) %>>%
-  po("smote", dup_size = 6) %>>%
-  po("colapply", id = "num_to_int",
-     applicator = function(x) as.integer(round(x, 0L)), affect_columns = selector_type("numeric"))
-
-
-
 
 ###No sampling techniques
 spGradient = ps(
@@ -172,39 +156,6 @@ spElastic = ps(
   }
 )
 
-###Smote BEGIN
-
-lrLassoSmote = as_learner(gr_smote %>>% lasso)
-
-spLassoSmote = ps(
-  classif.glmnet.s = p_dbl(-9.21034, 9.21034),
-  classif.glmnet.alpha = p_dbl(1,1),
-  smote.dup_size = p_int(1, 6),
-  smote.K = p_int(1, 6),
-  .extra_trafo = function(x, param_set) {
-    x$classif.glmnet.s = round(2^(x$classif.glmnet.s))
-    x
-  }
-)
-
-
-###SMOTE END
-
-###UNDER BEGIN
-
-lrLassoUnder = as_learner(po_under %>>% lasso)
-
-spLassoUnder = ps(
-  classif.glmnet.s = p_dbl(-9.21034, 9.21034),
-  classif.glmnet.alpha = p_dbl(1,1),
-  undersample.ratio = p_dbl(1/6, 1),
-  .extra_trafo = function(x, param_set) {
-    x$classif.glmnet.s = round(2^(x$classif.glmnet.s))
-    x
-  }
-)
-###UNDER END
-
 ### DEFINE SAMPLING END
 
 ###Learner Creation
@@ -214,7 +165,7 @@ terminator2 = trm("evals", n_evals = 5)
 terminator3 =trm("evals", n_evals = 1)
 
 gradientAuto = auto_tuner(
-  method = "random_search",
+  tuner = tnr("random_search"),
   learner = gradient,
   resampling = inner_cv3,
   measure = measure,
@@ -223,7 +174,7 @@ gradientAuto = auto_tuner(
 )
 
 forestAuto = auto_tuner(
-  method = "random_search",
+  tuner = tnr("random_search"),
   learner = forest,
   resampling = inner_cv3,
   measure = measure,
@@ -248,7 +199,7 @@ lrForest = AutoFSelector$new(
 )
 
 lrLasso = auto_tuner(
-  method = "random_search",
+  tuner = tnr("random_search"),
   learner = lasso,
   resampling = inner_cv3,
   measure = measure,
@@ -257,7 +208,7 @@ lrLasso = auto_tuner(
 )
 
 lrElastic = auto_tuner(
-  method = "random_search",
+  tuner = tnr("random_search"),
   learner = lasso,
   resampling = inner_cv3,
   measure = measure,
@@ -275,29 +226,6 @@ learns = list(
 
 
 
-learnsSmote = list(
-  auto_tuner(
-    method = "random_search",
-    learner = lrLassoSmote,
-    resampling = inner_cv3,
-    measure = measure,
-    search_space = spLassoSmote,
-    terminator = terminator2
-  )
-)
-
-learnsUnder = list(
-  auto_tuner(
-    method = "random_search",
-    learner = lrLassoUnder,
-    resampling = inner_cv3,
-    measure = measure,
-    search_space = spLassoUnder,
-    terminator = terminator2
-  )
-)
-
-
 
 crossValidation = rsmp("cv", folds=3)
 
@@ -306,23 +234,13 @@ design = benchmark_grid(
   learners = learns,
   resamplings = crossValidation)
 
-designUnder = benchmark_grid(
-  tasks = task_cadaf,
-  learners = learnsUnder,
-  resamplings = crossValidation)
-
-designSmote = benchmark_grid(
-  tasks = task_cadaf,
-  learners = learnsSmote,
-  resamplings = crossValidation)
 
 bmr = benchmark(design, store_models = TRUE)
-bmrSmote = benchmark(designSmote, store_models = TRUE)
-bmrUnder = benchmark(designUnder, store_models = TRUE)
+model <- lrForest$train(task_cadaf)
+
+
 bmr$aggregate(measure)
 autoplot(bmr, type = "roc")
-autoplot(bmrSmote, type = "roc")
-autoplot(bmrUnder, type = "roc")
 
 #-----------------------------------------------------------------Pipeop END---
 
