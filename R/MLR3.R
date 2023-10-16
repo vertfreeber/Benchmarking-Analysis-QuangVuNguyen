@@ -54,7 +54,7 @@ final_cohort <- cohort %>% left_join(person, by='person_id') %>%
 
 ParallelLogger::logInfo("Joining Condition Era Data")
 final_cohort <- cohort %>% left_join(condition_era, by='person_id') %>%
-  filter("condition_era_start_date" > "cohort_start_date") %>%
+  filter(condition_era_start_date <= cohort_start_date) %>%
   select("condition_concept_id", "person_id") %>% collect() %>% 
   gather(variable, value, -(c(person_id))) %>% 
   mutate(value2 = value)  %>% unite(temp, variable, value2) %>% 
@@ -63,7 +63,7 @@ final_cohort <- cohort %>% left_join(condition_era, by='person_id') %>%
 
 ParallelLogger::logInfo("Joining Observation Data")
 final_cohort <- cohort %>% left_join(observation, by='person_id') %>% 
-  filter("observation_date" > "cohort_start_date") %>%
+  filter(observation_date <= cohort_start_date) %>%
   select("observation_concept_id", "person_id") %>% collect() %>% gather(variable, value, -(c(person_id))) %>% 
   mutate(value2 = value)  %>% unite(temp, variable, value2) %>% 
   distinct(.keep_all = TRUE) %>% 
@@ -71,12 +71,11 @@ final_cohort <- cohort %>% left_join(observation, by='person_id') %>%
 
 ParallelLogger::logInfo("Joining Drug Era Data")
 final_cohort <- cohort %>% left_join(drug_era, by='person_id') %>%
-  filter("drug_era_start_date" > "cohort_start_date") %>%
+  filter(drug_era_start_date <= cohort_start_date) %>%
   select("drug_concept_id", "person_id") %>% collect() %>% gather(variable, value, -(c(person_id))) %>% 
   mutate(value2 = value)  %>% unite(temp, variable, value2) %>% 
   distinct(.keep_all = TRUE) %>% 
-  spread(temp, value) %>% left_join(final_cohort, by="person_id") %>%
-  head(100)
+  spread(temp, value) %>% left_join(final_cohort, by="person_id")
 
 gc()
 
@@ -84,6 +83,7 @@ ParallelLogger::logInfo("-----Preprocessing Data-----")
 ParallelLogger::logInfo("Removing column \'person_ID\'")
 
 final_cohort <- subset( final_cohort, select = -person_id)
+final_cohort <- subset( final_cohort, select = -cohort_start_date)
 ParallelLogger::logInfo("Standardizing column types to Integer")
 
 final_cohort[] <- lapply(final_cohort, as.integer)
@@ -110,7 +110,7 @@ task_cadaf$set_row_roles(split$test, "test")
 
 lasso = lrn("classif.glmnet", predict_type = "prob")
 gradient = lrn("classif.xgboost", predict_type = "prob", nrounds = 500, early_stopping_rounds = 25, early_stopping_set = "test",
-               eval_metric = "auc", ntreelimit = 1000)
+               eval_metric = "auc")
 forest = lrn("classif.ranger", predict_type = "prob", max.depth = 17, seed = 12345, mtry = as.integer(sqrt(length(task_cadaf$feature_names))))
 
 terminator = trm("evals", n_evals = 5)
@@ -236,7 +236,8 @@ design = benchmark_grid(
 
 
 bmr = benchmark(design, store_models = TRUE)
-model <- lrForest$train(task_cadaf)
+
+model <- lrGradient$train(task_cadaf, split$train)
 
 
 bmr$aggregate(measure)
